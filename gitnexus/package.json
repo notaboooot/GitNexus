@@ -94,11 +94,11 @@
   "optionalDependencies": {
     "node-addon-api": "^8.0.0",
     "node-gyp-build": "^4.8.0",
-    "tree-sitter-kotlin": "^0.3.8",
     "tree-sitter-dart": "file:./vendor/tree-sitter-dart",
+    "tree-sitter-kotlin": "^0.3.8",
+    "tree-sitter-objc": "^3.0.2",
     "tree-sitter-proto": "file:./vendor/tree-sitter-proto",
-    "tree-sitter-swift": "file:./vendor/tree-sitter-swift",
-    "tree-sitter-objc": "^0.3.0"
+    "tree-sitter-swift": "file:./vendor/tree-sitter-swift"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",
@@ -109,6 +109,7 @@
     "@types/uuid": "^11.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "gitnexus-shared": "file:../gitnexus-shared",
+    "graphology-types": "^0.24.8",
     "tsx": "^4.0.0",
     "typescript": "^5.4.5",
     "vitest": "^4.0.18"

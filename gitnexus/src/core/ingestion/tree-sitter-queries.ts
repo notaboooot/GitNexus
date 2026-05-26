@@ -1512,40 +1512,43 @@ export const DART_QUERIES = `
       (type_identifier) @heritage.trait))) @heritage
 `;
 
-// Objective-C queries - works with tree-sitter-objc
-// Based on tree-sitter-objc grammar nodes
+// Objective-C queries - works with tree-sitter-objc 3.x
+// Based on tree-sitter-objc grammar nodes (updated for 3.0.2)
 export const OBJECTIVE_C_QUERIES = `
 ; ── Class Interface ───────────────────────────────────────────────────────────
+; tree-sitter-objc 3.x: (class_interface (identifier) ...)
+; Match the first identifier only (class name), anchor at start
 (class_interface
-  name: (identifier) @name) @definition.class
+  . (identifier) @name) @definition.class
 
 ; ── Class Implementation ─────────────────────────────────────────────────────
 (class_implementation
-  name: (identifier) @name) @definition.class
+  . (identifier) @name) @definition.class
 
 ; ── Category Interface ────────────────────────────────────────────────────────
 (category_interface
-  name: (identifier) @name) @definition.class
+  . (identifier) @name) @definition.class
 
 ; ── Category Implementation ───────────────────────────────────────────────────
 (category_implementation
-  name: (identifier) @name) @definition.class
+  . (identifier) @name) @definition.class
 
 ; ── Protocol Declaration ──────────────────────────────────────────────────────
 (protocol_declaration
-  name: (identifier) @name) @definition.interface
+  . (identifier) @name) @definition.interface
 
 ; ── Protocol Forward Declaration ──────────────────────────────────────────────
 (protocol_forward_declaration
-  name: (identifier) @name) @definition.interface
+  . (identifier) @name) @definition.interface
 
 ; ── Method Declarations ───────────────────────────────────────────────────────
+; tree-sitter-objc 3.x: (method_declaration (method_type ...) (identifier))
 (method_declaration
-  selector: (selector) @name) @definition.method
+  (identifier) @name) @definition.method
 
 ; ── Method Definitions ────────────────────────────────────────────────────────
 (method_definition
-  selector: (selector) @name) @definition.method
+  (identifier) @name) @definition.method
 
 ; ── Instance Variables ────────────────────────────────────────────────────────
 (ivars_declaration
@@ -1553,8 +1556,16 @@ export const OBJECTIVE_C_QUERIES = `
     declarator: (identifier) @name)) @definition.property
 
 ; ── Properties ────────────────────────────────────────────────────────────────
+; tree-sitter-objc 3.x uses struct_declaration/struct_declarator for property names
 (property_declaration
-  name: (identifier) @name) @definition.property
+  (struct_declaration
+    (struct_declarator
+      (pointer_declarator
+        declarator: (identifier) @name)))) @definition.property
+
+; Also try direct identifier for simpler cases
+(property_declaration
+  (identifier) @name) @definition.property
 
 ; ── C Functions (common in OC files) ──────────────────────────────────────────
 (function_definition
@@ -1570,6 +1581,11 @@ export const OBJECTIVE_C_QUERIES = `
   path: (_) @import.source) @import
 
 ; ── Message Expressions (method calls) ────────────────────────────────────────
+; tree-sitter-objc 3.x uses (identifier) for selector
+(message_expression
+  (identifier) @call.name) @call
+
+; Also try selector node for compatibility
 (message_expression
   selector: (selector) @call.name) @call
 
@@ -1578,19 +1594,22 @@ export const OBJECTIVE_C_QUERIES = `
   function: (identifier) @call.name) @call
 
 ; ── Heritage: Class extends superclass ────────────────────────────────────────
+; tree-sitter-objc 3.x: (class_interface (identifier) superclass: (identifier) ...)
 (class_interface
-  name: (identifier) @heritage.class
+  . (identifier) @heritage.class
   superclass: (identifier) @heritage.extends) @heritage
 
 ; ── Heritage: Class implements protocols ──────────────────────────────────────
+; tree-sitter-objc 3.x: (parameterized_arguments (type_name (type_identifier)))
 (class_interface
-  name: (identifier) @heritage.class
-  protocols: (protocol_list
-    (identifier) @heritage.implements)) @heritage.impl
+  . (identifier) @heritage.class
+  (parameterized_arguments
+    (type_name
+      (type_identifier) @heritage.implements))) @heritage.impl
 
 ; ── Enum Declarations ─────────────────────────────────────────────────────────
 (enum_declaration
-  name: (identifier) @name) @definition.enum
+  (identifier) @name) @definition.enum
 
 ; ── Typedef ───────────────────────────────────────────────────────────────────
 (type_definition
