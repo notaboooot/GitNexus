@@ -4,12 +4,23 @@
  * Manages GitNexus index storage in .gitnexus/ at repo root.
  * Also maintains a global registry at ~/.gitnexus/registry.json
  * so the MCP server can discover indexed repos from any cwd.
+ *
+ * ## External Storage Mode
+ *
+ * When GITNEXUS_INDEX_STORAGE env var is set, indexes are stored in a
+ * centralized location instead of inside each repo's .gitnexus/ directory.
+ * This reduces repository intrusion and deduplication in multi-repo scenarios.
+ *
+ * Storage path resolution:
+ * - Default (no env var): <repo>/.gitnexus/
+ * - External storage: ${GITNEXUS_INDEX_STORAGE}/${repoName}/
  */
 
 import fs from 'fs/promises';
 import { realpathSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { getInferredRepoName, resolveRepoIdentityRoot } from './git.js';
 import { logger } from '../core/logger.js';
 
@@ -131,20 +142,93 @@ export interface RegistryEntry {
 const GITNEXUS_DIR = '.gitnexus';
 const GITNEXUS_EXCLUDE_ENTRY = `${GITNEXUS_DIR}/`;
 
+// ─── External Storage Configuration ─────────────────────────────────────
+
+/**
+ * Check if external storage mode is enabled via GITNEXUS_INDEX_STORAGE env var.
+ * When enabled, indexes are stored in a centralized location instead of inside
+ * each repo's .gitnexus/ directory.
+ */
+export const isExternalStorageEnabled = (): boolean => {
+  return !!process.env.GITNEXUS_INDEX_STORAGE;
+};
+
+/**
+ * Get the external storage root directory from GITNEXUS_INDEX_STORAGE env var.
+ * Returns undefined if external storage is not enabled.
+ */
+export const getExternalStorageRoot = (): string | undefined => {
+  return process.env.GITNEXUS_INDEX_STORAGE;
+};
+
+/**
+ * Generate a unique storage directory name for a repository.
+ * Uses the registry name (derived from remote URL or basename) when available.
+ * Falls back to path hash for disambiguation when needed.
+ *
+ * @param repoPath - Absolute path to the repository
+ * @param registryName - Optional registry name (from --name or inferred from remote)
+ */
+export const getStorageDirName = (repoPath: string, registryName?: string): string => {
+  if (registryName) {
+    // Use the registry name directly - it's already sanitized
+    return registryName;
+  }
+
+  // Try to infer name from git remote
+  const inferredName = getInferredRepoName(repoPath);
+  if (inferredName) {
+    return inferredName;
+  }
+
+  // Fall back to basename of the canonical repo root
+  const identityRoot = resolveRepoIdentityRoot(repoPath);
+  return path.basename(identityRoot);
+};
+
+/**
+ * Get a unique identifier for a repo path to handle name collisions.
+ * Uses first 8 chars of SHA-256 hash of the absolute path.
+ */
+const getPathHash = (repoPath: string): string => {
+  return crypto.createHash('sha256').update(path.resolve(repoPath)).digest('hex').slice(0, 8);
+};
+
 // ─── Local Storage Helpers ─────────────────────────────────────────────
 
 /**
- * Get the .gitnexus storage path for a repository
+ * Get the storage path for a repository.
+ *
+ * When GITNEXUS_INDEX_STORAGE is set, returns the external storage path:
+ *   ${GITNEXUS_INDEX_STORAGE}/${repoName}/
+ *
+ * Otherwise, returns the default in-repo storage path:
+ *   <repo>/.gitnexus/
+ *
+ * @param repoPath - Path to the repository
+ * @param registryName - Optional registry name for external storage naming
  */
-export const getStoragePath = (repoPath: string): string => {
+export const getStoragePath = (repoPath: string, registryName?: string): string => {
+  const externalRoot = getExternalStorageRoot();
+
+  if (externalRoot) {
+    // External storage mode: store in centralized location
+    const dirName = getStorageDirName(repoPath, registryName);
+    return path.join(externalRoot, dirName);
+  }
+
+  // Default: store inside the repo
   return path.join(path.resolve(repoPath), GITNEXUS_DIR);
 };
 
 /**
  * Get paths to key storage files
+ *
+ * @param repoPath - Path to the repository
+ * @param registryName - Optional registry name for external storage naming
  */
-export const getStoragePaths = (repoPath: string) => {
-  const storagePath = getStoragePath(repoPath);
+export const getStoragePaths = (repoPath: string, registryName?: string) => {
+  const storagePath = getStoragePath(repoPath, registryName);
   return {
     storagePath,
     lbugPath: path.join(storagePath, 'lbug'),
@@ -289,8 +373,16 @@ function isReadOnlyFilesystemError(err: unknown): boolean {
 
 /**
  * Keep generated index files ignored without modifying the user's root .gitignore.
+ *
+ * When external storage mode is enabled, this function is a no-op since the
+ * index files are stored outside the repository and don't need gitignore rules.
  */
 export const ensureGitNexusIgnored = async (repoPath: string): Promise<void> => {
+  // Skip gitignore setup when using external storage - index is outside the repo
+  if (isExternalStorageEnabled()) {
+    return;
+  }
+
   const gitignorePath = path.join(getStoragePath(repoPath), '.gitignore');
   const desired = '*\n';
 
@@ -527,7 +619,6 @@ export const registerRepo = async (
   // Canonicalisation is applied at COMPARE points only (see below),
   // which is where the cross-platform divergence actually matters.
   const resolved = path.resolve(repoPath);
-  const { storagePath } = getStoragePaths(resolved);
 
   // Canonical form used strictly for comparison — `realpathSync.native`
   // expands macOS /var → /private/var and Windows 8.3 → long-name,
@@ -596,6 +687,10 @@ export const registerRepo = async (
       throw new RegistryNameCollisionError(name, collidingEntry.path, resolved);
     }
   }
+
+  // Compute storagePath AFTER determining the name, so external storage
+  // can use the registry name as the storage directory name.
+  const storagePath = getStoragePath(resolved, name);
 
   const entry: RegistryEntry = {
     name,
@@ -794,8 +889,15 @@ export class UnsafeStoragePathError extends Error {
 /**
  * Guard rail for destructive CLI paths (`remove` #664,
  * `clean --all` #258, future MCP `remove` tool): verify that a
- * registry entry's `storagePath` is the canonical `<repo>/.gitnexus`
- * subfolder of its `path`. If not, throw {@link UnsafeStoragePathError}
+ * registry entry's `storagePath` is valid and safe to delete.
+ *
+ * When external storage mode is enabled, validates that storagePath is
+ * under the configured GITNEXUS_INDEX_STORAGE directory.
+ *
+ * When using default in-repo storage, validates that storagePath is
+ * the canonical `<repo>/.gitnexus` subfolder of its `path`.
+ *
+ * If validation fails, throws {@link UnsafeStoragePathError}
  * so the caller exits without touching disk.
  *
  * Why this exists (#1003 review — @magyargergo):
@@ -821,8 +923,25 @@ export class UnsafeStoragePathError extends Error {
  * comparison shape used elsewhere in this module.
  */
 export const assertSafeStoragePath = (entry: RegistryEntry): void => {
-  const expected = path.join(path.resolve(entry.path), '.gitnexus');
   const actual = path.resolve(entry.storagePath);
+  const externalRoot = getExternalStorageRoot();
+
+  // When using external storage, validate the path is under the configured root
+  if (externalRoot) {
+    const expectedPrefix = path.resolve(externalRoot);
+    const isUnderExternalRoot =
+      process.platform === 'win32'
+        ? actual.toLowerCase().startsWith(expectedPrefix.toLowerCase() + path.sep)
+        : actual.startsWith(expectedPrefix + path.sep);
+
+    if (!isUnderExternalRoot) {
+      throw new UnsafeStoragePathError(entry, path.join(expectedPrefix, entry.name), actual);
+    }
+    return;
+  }
+
+  // Default in-repo storage: validate storagePath is under <repo>/.gitnexus
+  const expected = path.join(path.resolve(entry.path), '.gitnexus');
   const matches =
     process.platform === 'win32'
       ? expected.toLowerCase() === actual.toLowerCase()

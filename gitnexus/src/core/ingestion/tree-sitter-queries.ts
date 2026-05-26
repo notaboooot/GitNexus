@@ -1512,6 +1512,109 @@ export const DART_QUERIES = `
       (type_identifier) @heritage.trait))) @heritage
 `;
 
+// Objective-C queries - works with tree-sitter-objc
+// Based on tree-sitter-objc grammar nodes
+export const OBJECTIVE_C_QUERIES = `
+; ── Class Interface ───────────────────────────────────────────────────────────
+(class_interface
+  name: (identifier) @name) @definition.class
+
+; ── Class Implementation ─────────────────────────────────────────────────────
+(class_implementation
+  name: (identifier) @name) @definition.class
+
+; ── Category Interface ────────────────────────────────────────────────────────
+(category_interface
+  name: (identifier) @name) @definition.class
+
+; ── Category Implementation ───────────────────────────────────────────────────
+(category_implementation
+  name: (identifier) @name) @definition.class
+
+; ── Protocol Declaration ──────────────────────────────────────────────────────
+(protocol_declaration
+  name: (identifier) @name) @definition.interface
+
+; ── Protocol Forward Declaration ──────────────────────────────────────────────
+(protocol_forward_declaration
+  name: (identifier) @name) @definition.interface
+
+; ── Method Declarations ───────────────────────────────────────────────────────
+(method_declaration
+  selector: (selector) @name) @definition.method
+
+; ── Method Definitions ────────────────────────────────────────────────────────
+(method_definition
+  selector: (selector) @name) @definition.method
+
+; ── Instance Variables ────────────────────────────────────────────────────────
+(ivars_declaration
+  (ivar_declaration
+    declarator: (identifier) @name)) @definition.property
+
+; ── Properties ────────────────────────────────────────────────────────────────
+(property_declaration
+  name: (identifier) @name) @definition.property
+
+; ── C Functions (common in OC files) ──────────────────────────────────────────
+(function_definition
+  declarator: (function_declarator
+    declarator: (identifier) @name)) @definition.function
+
+; ── Imports ───────────────────────────────────────────────────────────────────
+(import_declaration
+  path: (string_literal) @import.source) @import
+
+; ── Preprocessor Includes ─────────────────────────────────────────────────────
+(preproc_include
+  path: (_) @import.source) @import
+
+; ── Message Expressions (method calls) ────────────────────────────────────────
+(message_expression
+  selector: (selector) @call.name) @call
+
+; ── C-style Function Calls ────────────────────────────────────────────────────
+(call_expression
+  function: (identifier) @call.name) @call
+
+; ── Heritage: Class extends superclass ────────────────────────────────────────
+(class_interface
+  name: (identifier) @heritage.class
+  superclass: (identifier) @heritage.extends) @heritage
+
+; ── Heritage: Class implements protocols ──────────────────────────────────────
+(class_interface
+  name: (identifier) @heritage.class
+  protocols: (protocol_list
+    (identifier) @heritage.implements)) @heritage.impl
+
+; ── Enum Declarations ─────────────────────────────────────────────────────────
+(enum_declaration
+  name: (identifier) @name) @definition.enum
+
+; ── Typedef ───────────────────────────────────────────────────────────────────
+(type_definition
+  declarator: (type_identifier) @name) @definition.typedef
+
+; ── Struct (OC can have C structs) ────────────────────────────────────────────
+(struct_specifier
+  name: (type_identifier) @name) @definition.struct
+
+; ── Write access: obj.field = value ───────────────────────────────────────────
+(assignment_expression
+  left: (member_expression
+    object: (_) @assignment.receiver
+    property: (field_identifier) @assignment.property)
+  right: (_)) @assignment
+
+; ── Compound assignment: obj.field += value ───────────────────────────────────
+(compound_assignment_expression
+  left: (member_expression
+    object: (_) @assignment.receiver
+    property: (field_identifier) @assignment.property)
+  right: (_)) @assignment
+`;
+
 import { SupportedLanguages } from 'gitnexus-shared';
 
 export const LANGUAGE_QUERIES: Record<SupportedLanguages, string> = {
@@ -1531,4 +1634,5 @@ export const LANGUAGE_QUERIES: Record<SupportedLanguages, string> = {
   [SupportedLanguages.Dart]: DART_QUERIES,
   [SupportedLanguages.Vue]: TYPESCRIPT_QUERIES, // Vue <script> blocks are parsed as TypeScript
   [SupportedLanguages.Cobol]: '', // Standalone regex processor — no tree-sitter queries
+  [SupportedLanguages.ObjectiveC]: OBJECTIVE_C_QUERIES,
 };

@@ -161,6 +161,14 @@ const SOURCES: Record<string, GrammarSource> = {
       'Kotlin parsing disabled: `tree-sitter-kotlin` is an optionalDependency ' +
       'and is not installed (or its native binding failed to build).',
   },
+  [SupportedLanguages.ObjectiveC]: {
+    load: () => _require('tree-sitter-objc'),
+    optional: true,
+    unavailableNote:
+      'Objective-C parsing disabled: `tree-sitter-objc` is an optionalDependency ' +
+      'and is not installed (or its native binding failed to build). ' +
+      'Install with `npm install tree-sitter-objc` or check your build environment.',
+  },
 };
 
 type LoadResult =

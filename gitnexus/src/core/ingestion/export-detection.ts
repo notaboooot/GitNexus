@@ -246,3 +246,23 @@ export const rubyExportChecker: ExportChecker = (_node, _name) => true;
 
 /** Dart: public if no leading underscore (convention, same as Python). */
 export const dartExportChecker: ExportChecker = (_node, name) => !name.startsWith('_');
+
+/**
+ * Objective-C: symbols in .h files are exported (public interface).
+ * All @interface, @protocol, and @property declarations in headers are public.
+ * Implementation files (.m) are internal but still processed for analysis.
+ */
+export const objectiveCExportChecker: ExportChecker = (node, _name) => {
+  // @public and @published ivars/properties are exported
+  let current: SyntaxNode | null = node;
+  while (current) {
+    const text = current.text || '';
+    if (text.includes('@private') || text.includes('@protected')) {
+      // These are visibility modifiers for ivars
+      return false;
+    }
+    current = current.parent;
+  }
+  // Default: all OC interface symbols are public
+  return true;
+};

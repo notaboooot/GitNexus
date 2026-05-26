@@ -1106,3 +1106,157 @@ describe('registerRepo worktree-aware basename fallback (#1259)', () => {
     expect(entries[0].name).not.toBe(path.basename(tmpRepo.dbPath));
   });
 });
+
+// ─── External Storage Mode (GITNEXUS_INDEX_STORAGE) ─────────────────────────
+
+describe('External Storage Mode', () => {
+  let tmpRepo: Awaited<ReturnType<typeof createTempDir>>;
+  let externalStorageDir: Awaited<ReturnType<typeof createTempDir>>;
+  let originalEnv: string | undefined;
+
+  const meta: RepoMeta = {
+    repoPath: '',
+    lastCommit: 'abc123',
+    indexedAt: new Date().toISOString(),
+  };
+
+  beforeEach(async () => {
+    tmpRepo = await createTempDir('gitnexus-external-storage-');
+    externalStorageDir = await createTempDir('gitnexus-external-root-');
+    originalEnv = process.env.GITNEXUS_INDEX_STORAGE;
+    // Clear any existing registry entries
+    const entries = await listRegisteredRepos();
+    for (const entry of entries) {
+      // Reset registry by reading/writing
+    }
+  });
+
+  afterEach(async () => {
+    // Restore original env
+    if (originalEnv === undefined) {
+      delete process.env.GITNEXUS_INDEX_STORAGE;
+    } else {
+      process.env.GITNEXUS_INDEX_STORAGE = originalEnv;
+    }
+    await tmpRepo.cleanup();
+    await externalStorageDir.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  describe('getStoragePath', () => {
+    it('returns in-repo path when GITNEXUS_INDEX_STORAGE is not set', () => {
+      delete process.env.GITNEXUS_INDEX_STORAGE;
+      const result = getStoragePath('/home/user/project');
+      expect(result).toContain('.gitnexus');
+      expect(path.basename(result)).toBe('.gitnexus');
+    });
+
+    it('returns external path when GITNEXUS_INDEX_STORAGE is set', () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+      const result = getStoragePath('/home/user/project', 'my-repo');
+      expect(result).toBe(path.join(externalStorageDir.dbPath, 'my-repo'));
+      expect(result).not.toContain('.gitnexus');
+    });
+
+    it('uses registry name as subdirectory name when provided', () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+      const result = getStoragePath('/home/user/project', 'custom-name');
+      expect(result).toBe(path.join(externalStorageDir.dbPath, 'custom-name'));
+    });
+  });
+
+  describe('ensureGitNexusIgnored', () => {
+    it('skips creating .gitignore when external storage is enabled', async () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+
+      await ensureGitNexusIgnored(tmpRepo.dbPath);
+
+      // Should NOT create .gitnexus directory in the repo
+      const gitnexusPath = path.join(tmpRepo.dbPath, '.gitnexus');
+      await expect(fs.stat(gitnexusPath)).rejects.toThrow();
+    });
+
+    it('creates .gitignore when external storage is disabled', async () => {
+      delete process.env.GITNEXUS_INDEX_STORAGE;
+
+      await ensureGitNexusIgnored(tmpRepo.dbPath);
+
+      const gitignorePath = path.join(tmpRepo.dbPath, '.gitnexus', '.gitignore');
+      await expect(fs.readFile(gitignorePath, 'utf-8')).resolves.toBe('*\n');
+    });
+  });
+
+  describe('assertSafeStoragePath', () => {
+    it('allows paths under external storage root', () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+
+      const entry: RegistryEntry = {
+        name: 'my-repo',
+        path: tmpRepo.dbPath,
+        storagePath: path.join(externalStorageDir.dbPath, 'my-repo'),
+        indexedAt: new Date().toISOString(),
+        lastCommit: 'abc123',
+      };
+
+      // Should not throw
+      expect(() => assertSafeStoragePath(entry)).not.toThrow();
+    });
+
+    it('rejects paths outside external storage root', () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+
+      const entry: RegistryEntry = {
+        name: 'my-repo',
+        path: tmpRepo.dbPath,
+        storagePath: '/some/other/path/my-repo',
+        indexedAt: new Date().toISOString(),
+        lastCommit: 'abc123',
+      };
+
+      expect(() => assertSafeStoragePath(entry)).toThrow(UnsafeStoragePathError);
+    });
+
+    it('allows in-repo paths when external storage is disabled', () => {
+      delete process.env.GITNEXUS_INDEX_STORAGE;
+
+      const entry: RegistryEntry = {
+        name: 'my-repo',
+        path: tmpRepo.dbPath,
+        storagePath: path.join(tmpRepo.dbPath, '.gitnexus'),
+        indexedAt: new Date().toISOString(),
+        lastCommit: 'abc123',
+      };
+
+      // Should not throw
+      expect(() => assertSafeStoragePath(entry)).not.toThrow();
+    });
+  });
+
+  describe('registerRepo', () => {
+    it('stores index in external location when GITNEXUS_INDEX_STORAGE is set', async () => {
+      process.env.GITNEXUS_INDEX_STORAGE = externalStorageDir.dbPath;
+
+      const registryName = await registerRepo(tmpRepo.dbPath, meta, { name: 'external-test-repo' });
+
+      expect(registryName).toBe('external-test-repo');
+
+      const entries = await listRegisteredRepos();
+      const entry = entries.find((e) => e.name === 'external-test-repo');
+      expect(entry).toBeDefined();
+      expect(entry!.storagePath).toBe(path.join(externalStorageDir.dbPath, 'external-test-repo'));
+    });
+
+    it('stores index in repo when GITNEXUS_INDEX_STORAGE is not set', async () => {
+      delete process.env.GITNEXUS_INDEX_STORAGE;
+
+      const registryName = await registerRepo(tmpRepo.dbPath, meta, { name: 'internal-test-repo' });
+
+      expect(registryName).toBe('internal-test-repo');
+
+      const entries = await listRegisteredRepos();
+      const entry = entries.find((e) => e.name === 'internal-test-repo');
+      expect(entry).toBeDefined();
+      expect(entry!.storagePath).toBe(path.join(tmpRepo.dbPath, '.gitnexus'));
+    });
+  });
+});

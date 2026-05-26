@@ -32,7 +32,7 @@ const EXTENSION_MAP: Record<SupportedLanguages, readonly string[]> = {
   [SupportedLanguages.Python]: ['.py'],
   [SupportedLanguages.Java]: ['.java'],
   [SupportedLanguages.C]: ['.c'],
-  [SupportedLanguages.CPlusPlus]: ['.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx', '.hh'],
+  [SupportedLanguages.CPlusPlus]: ['.cpp', '.cc', '.cxx', '.hpp', '.hxx', '.hh'],
   [SupportedLanguages.CSharp]: ['.cs'],
   [SupportedLanguages.Go]: ['.go'],
   [SupportedLanguages.Ruby]: ['.rb', '.rake', '.gemspec'],
@@ -43,6 +43,7 @@ const EXTENSION_MAP: Record<SupportedLanguages, readonly string[]> = {
   [SupportedLanguages.Dart]: ['.dart'],
   [SupportedLanguages.Vue]: ['.vue'],
   [SupportedLanguages.Cobol]: ['.cbl', '.cob', '.cpy', '.cobol'],
+  [SupportedLanguages.ObjectiveC]: ['.m', '.h', '.mm', '.M'],
 } satisfies Record<SupportedLanguages, readonly string[]>; // Ensure exhaustiveness
 
 /** Pre-built reverse lookup: extension → language (built once at module load). */
@@ -111,6 +112,7 @@ const SYNTAX_MAP: Record<SupportedLanguages, string> = {
   [SupportedLanguages.Dart]: 'dart',
   [SupportedLanguages.Vue]: 'typescript',
   [SupportedLanguages.Cobol]: 'cobol',
+  [SupportedLanguages.ObjectiveC]: 'objectivec',
 } satisfies Record<SupportedLanguages, string>; // Ensure exhaustiveness
 
 /** Non-code file extensions → Prism-compatible syntax identifiers */

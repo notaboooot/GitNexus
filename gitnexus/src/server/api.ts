@@ -13,7 +13,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs/promises';
 import { createRequire } from 'node:module';
-import { loadMeta, listRegisteredRepos, getStoragePath } from '../storage/repo-manager.js';
+import { loadMeta, listRegisteredRepos } from '../storage/repo-manager.js';
 import {
   executeQuery,
   executePrepared,
@@ -940,7 +940,8 @@ export const createServer = async (port: number, host: string = '127.0.0.1') => 
       }
 
       // Acquire repo lock — prevents deleting while analyze/embed is in flight
-      const lockKey = getStoragePath(entry.path);
+      // Use entry.storagePath directly (from registry) to support external storage mode
+      const lockKey = entry.storagePath;
       const lockErr = acquireRepoLock(lockKey);
       if (lockErr) {
         res.status(409).json({ error: lockErr });
@@ -953,8 +954,9 @@ export const createServer = async (port: number, host: string = '127.0.0.1') => 
           await closeLbug();
         } catch {}
 
-        // 1. Delete the .gitnexus index/storage directory
-        const storagePath = getStoragePath(entry.path);
+        // 1. Delete the index/storage directory
+        // Use entry.storagePath directly (from registry) to support external storage mode
+        const storagePath = entry.storagePath;
         await fs.rm(storagePath, { recursive: true, force: true }).catch(() => {});
 
         // 2. Delete the cloned repo dir if it lives under ~/.gitnexus/repos/.
@@ -1481,8 +1483,9 @@ export const createServer = async (port: number, host: string = '127.0.0.1') => 
             throw new Error('No target path resolved');
           }
 
-          // Acquire shared repo lock (keyed on storagePath to match embed handler)
-          const analyzeLockKey = getStoragePath(targetPath);
+          // Acquire shared repo lock (keyed on repo path, not storage path)
+          // This ensures consistent locking regardless of external storage mode
+          const analyzeLockKey = path.resolve(targetPath);
           const lockErr = acquireRepoLock(analyzeLockKey);
           if (lockErr) {
             jobManager.updateJob(job.id, { status: 'failed', error: lockErr });
@@ -1619,7 +1622,7 @@ export const createServer = async (port: number, host: string = '127.0.0.1') => 
 
           forkWorker();
         } catch (err: any) {
-          if (targetPath) releaseRepoLock(getStoragePath(targetPath));
+          if (targetPath) releaseRepoLock(path.resolve(targetPath));
           jobManager.updateJob(job.id, {
             status: 'failed',
             error: err.message || 'Analysis failed',

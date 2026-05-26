@@ -197,7 +197,8 @@ export async function runFullAnalysis(
   const progress = (phase: string, percent: number, message: string) =>
     callbacks.onProgress(phase, percent, message);
 
-  const { storagePath, lbugPath } = getStoragePaths(repoPath);
+  // Pass registryName to getStoragePaths for correct external storage path
+  const { storagePath, lbugPath } = getStoragePaths(repoPath, options.registryName);
 
   // Clean up stale KuzuDB files from before the LadybugDB migration.
   const kuzuResult = await cleanupOldKuzuFiles(storagePath);
