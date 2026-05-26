@@ -285,6 +285,10 @@ Follow these steps:
  * Start the MCP server on stdio transport (for CLI use).
  */
 export async function startMCPServer(backend: LocalBackend): Promise<void> {
+  // 打印编译时间，方便验证版本
+  const buildTime = new Date().toISOString();
+  process.stderr.write(`[GitNexus MCP] 启动时间: ${buildTime}\n`);
+
   const server = createMCPServer(backend);
 
   // Idempotent global sentinel install. cli/mcp.ts calls this first thing

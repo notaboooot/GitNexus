@@ -128,6 +128,11 @@ program
   .action(createLazyAction(() => import('./doctor.js'), 'doctorCommand'));
 
 program
+  .command('build-info')
+  .description('Show GitNexus build information (version, compile time)')
+  .action(createLazyAction(() => import('./build-info.js'), 'buildInfoCommand'));
+
+program
   .command('clean')
   .description('Delete GitNexus index for current repo')
   .option('-f, --force', 'Skip confirmation prompt')

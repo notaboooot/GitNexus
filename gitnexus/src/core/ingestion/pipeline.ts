@@ -26,6 +26,7 @@ import {
   markdownPhase,
   cobolPhase,
   parsePhase,
+  objcEnhancementPhase,
   routesPhase,
   toolsPhase,
   ormPhase,
@@ -141,6 +142,7 @@ function buildPhaseList(options?: PipelineOptions): PipelinePhase[] {
     markdownPhase,
     cobolPhase,
     parsePhase,
+    objcEnhancementPhase, // OC enhancement after parse, before cross-file
     routesPhase,
     toolsPhase,
     ormPhase,

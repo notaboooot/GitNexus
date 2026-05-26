@@ -126,4 +126,15 @@ if (fs.existsSync(path.join(WEB_ROOT, 'package.json'))) {
   console.log('[build] skipping web UI (gitnexus-web not found)');
 }
 
+// ── 7. Generate build info ──────────────────────────────────────────
+const buildInfo = {
+  version: JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8')).version,
+  buildTime: new Date().toISOString(),
+  nodeVersion: process.version,
+};
+fs.writeFileSync(path.join(DIST, 'build-info.json'), JSON.stringify(buildInfo, null, 2));
+console.log(
+  `[build] generated build-info.json (version: ${buildInfo.version}, time: ${buildInfo.buildTime})`,
+);
+
 console.log(`[build] done — rewrote ${rewritten} files.`);
