@@ -1282,7 +1282,15 @@ export const batchInsertNodesToLbug = async (
 };
 
 export const executeQuery = async (cypher: string): Promise<any[]> => {
-  return await executePrepared(cypher, {});
+  if (!conn) {
+    throw new Error('LadybugDB not initialized. Call initLbug first.');
+  }
+  // Use conn.query directly instead of executePrepared because some statements
+  // (e.g., CALL CREATE_VECTOR_INDEX) are not preparable in LadybugDB.
+  // executePrepared uses conn.prepare which fails with "We do not support prepare
+  // multiple statements" for certain statement types.
+  const queryResult = await conn.query(cypher);
+  return await readQueryRows(queryResult);
 };
 
 export const streamQuery = async (

@@ -6,14 +6,23 @@
  *
  * @deps    parse
  * @reads   graph (symbols from parse phase)
- * @writes  enhanced symbols back to graph
+ * @writes  enhanced symbols back to graph, CALLS edges for resolved calls
  */
 
 import type { PipelinePhase, PipelineContext, PhaseResult } from './types.js';
 import { getPhaseOutput } from './types.js';
 import type { ParseOutput } from './parse.js';
 import { ObjCEnhancedProcessor } from '../objc-enhanced/enhanced-processor.js';
+import {
+  loadObjCConfig,
+  autoDetectObjCConfig,
+  type ObjCConfig,
+} from '../objc-enhanced/xcode-extractor.js';
+import type { ObjCEnhancedConfig } from '../objc-enhanced/types.js';
 import { logger } from '../../logger.js';
+import { generateId } from '../../../lib/utils.js';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /** OC Enhancement phase output */
 export interface ObjCEnhancementOutput {
@@ -31,6 +40,9 @@ export interface ObjCEnhancementOutput {
 
   /** Total files processed (for progress) */
   totalFiles: number;
+
+  /** Type bindings from Clang: Map<filePath, Map<varName, typeName>> */
+  typeBindings: Map<string, Map<string, string>>;
 }
 
 /**
@@ -39,11 +51,74 @@ export interface ObjCEnhancementOutput {
 function hasObjCFilesInGraph(graph: any): boolean {
   let hasObjC = false;
   graph.forEachNode((node: any) => {
-    if (node.filePath && /\.(m|h|mm|M)$/.test(node.filePath)) {
+    // Check both node.filePath (for File nodes) and node.properties?.filePath (for symbol nodes)
+    const filePath = node.filePath || node.properties?.filePath;
+    if (filePath && /\.(m|h|mm|M)$/.test(filePath)) {
       hasObjC = true;
     }
   });
   return hasObjC;
+}
+
+/**
+ * Load ObjC configuration from file path or try auto-detection.
+ *
+ * Priority:
+ * 1. If configPath is provided and file exists -> load from file
+ * 2. If configPath is provided but file doesn't exist -> auto-detect and save
+ * 3. If no configPath -> auto-detect (no save)
+ */
+function loadConfig(configPath: string | undefined, repoPath: string): ObjCConfig | null {
+  // Case 1: Config file provided and exists
+  if (configPath) {
+    const absolutePath = resolve(repoPath, configPath);
+    if (existsSync(absolutePath)) {
+      try {
+        logger.info(`[ObjC Enhancement] Loading config from: ${absolutePath}`);
+        return loadObjCConfig(absolutePath);
+      } catch (error) {
+        logger.warn(`[ObjC Enhancement] Failed to load config from ${absolutePath}: ${error}`);
+        // Fall through to auto-detection
+      }
+    }
+  }
+
+  // Case 2 & 3: Auto-detect from nearest Xcode project
+  logger.info('[ObjC Enhancement] Auto-detecting Xcode project settings...');
+  const config = autoDetectObjCConfig(repoPath);
+
+  if (!config) {
+    logger.info('[ObjC Enhancement] No Xcode project found, using default Clang settings');
+    return null;
+  }
+
+  // If configPath was provided but file didn't exist, save the auto-detected config
+  if (configPath) {
+    const absolutePath = resolve(repoPath, configPath);
+    try {
+      const { writeFileSync } = require('node:fs');
+      writeFileSync(absolutePath, JSON.stringify(config, null, 2));
+      logger.info(`[ObjC Enhancement] Saved auto-detected config to: ${absolutePath}`);
+    } catch (error) {
+      logger.warn(`[ObjC Enhancement] Failed to save config to ${absolutePath}: ${error}`);
+    }
+  }
+
+  return config;
+}
+
+/**
+ * Convert ObjCConfig to ClangIndexer config format
+ */
+function toClangConfig(config: ObjCConfig): Partial<ObjCEnhancedConfig> {
+  return {
+    frameworkPaths: config.frameworkSearchPaths,
+    includePaths: config.headerSearchPaths,
+    defines: config.defines,
+    otherFlags: config.otherClangFlags,
+    timeout: config.timeout,
+    // SDK path would need platform-specific resolution
+  };
 }
 
 export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
@@ -60,6 +135,7 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
       callsResolved: 0,
       enhancementAvailable: false,
       totalFiles: 0,
+      typeBindings: new Map(),
     };
 
     // Get parse output for file paths
@@ -87,8 +163,19 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
       stats: { filesProcessed: 0, totalFiles: ocFiles.length, nodesCreated: ctx.graph.nodeCount },
     });
 
-    // Initialize the processor
-    const processor = new ObjCEnhancedProcessor();
+    // Load configuration if provided
+    const objcConfigPath = ctx.options?.objcConfigPath;
+    const config = loadConfig(objcConfigPath, ctx.repoPath);
+
+    if (config) {
+      logger.info(
+        `[ObjC Enhancement] Using config with ${config.frameworkSearchPaths.length} framework paths, ${config.headerSearchPaths.length} header paths`,
+      );
+    }
+
+    // Initialize the processor with config
+    const clangConfig = config ? toClangConfig(config) : undefined;
+    const processor = new ObjCEnhancedProcessor(clangConfig);
     output.enhancementAvailable = await processor.initialize();
 
     if (!output.enhancementAvailable) {
@@ -99,6 +186,23 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
     // Read OC files and process them
     const fs = await import('node:fs/promises');
     let processedCount = 0;
+    let callsEdgesCreated = 0;
+
+    // Build a lookup map for method nodes by class
+    const methodLookup = new Map<string, string>(); // "ClassName.methodName" -> nodeId
+    ctx.graph.forEachNode((node: any) => {
+      if (node.label === 'Method' && node.properties?.name) {
+        // Extract class name from nodeId (format: "Method:filePath:ClassName:methodName#num")
+        const parts = node.id.split(':');
+        if (parts.length >= 3) {
+          const className = parts[2];
+          const methodKey = `${className}.${node.properties.name}`;
+          if (!methodLookup.has(methodKey)) {
+            methodLookup.set(methodKey, node.id);
+          }
+        }
+      }
+    });
 
     for (const filePath of ocFiles) {
       try {
@@ -106,9 +210,11 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
 
         // Get symbols from graph for this file
         const fileSymbols: any[] = [];
+        const fileNodes = new Map<string, any>(); // nodeId -> node
         ctx.graph.forEachNode((node: any) => {
-          if (node.filePath === filePath) {
+          if (node.properties?.filePath === filePath) {
             fileSymbols.push(node);
+            fileNodes.set(node.id, node);
           }
         });
 
@@ -120,8 +226,55 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
           output.symbolsEnhanced += result.enhancedSymbols.size;
           output.callsResolved += result.resolvedCalls.size;
 
-          // Note: Graph updates would go here if we had an updateNode method
-          // For now, the enhanced type info is available in the result
+          // Store type bindings for downstream phases (scope resolution)
+          for (const [fp, types] of result.enhancedTypeBindings) {
+            output.typeBindings.set(fp, types);
+          }
+
+          // Create CALLS edges from resolved calls
+          for (const [callKey, targets] of result.resolvedCalls) {
+            // callKey format: "filePath:line:selector"
+            const [callFile, callLine, selector] = callKey.split(':');
+
+            // Find the source node (method containing this call)
+            let sourceNodeId: string | null = null;
+            for (const [nodeId, node] of fileNodes) {
+              if (node.label === 'Method') {
+                const startLine = node.properties?.startLine;
+                const endLine = node.properties?.endLine;
+                const line = parseInt(callLine, 10);
+                if (startLine && endLine && line >= startLine && line <= endLine) {
+                  sourceNodeId = nodeId;
+                  break;
+                }
+              }
+            }
+
+            if (!sourceNodeId) continue;
+
+            // Find target methods
+            for (const target of targets) {
+              // target format: "ClassName.methodName"
+              const targetNodeId = methodLookup.get(target);
+              if (targetNodeId) {
+                // Create CALLS edge
+                const edgeId = generateId('CALLS', `${sourceNodeId}:${selector}->${targetNodeId}`);
+                try {
+                  ctx.graph.addRelationship({
+                    id: edgeId,
+                    type: 'CALLS',
+                    sourceId: sourceNodeId,
+                    targetId: targetNodeId,
+                    confidence: 0.9, // High confidence from Clang
+                    reason: 'clang-ast-resolution',
+                  });
+                  callsEdgesCreated++;
+                } catch {
+                  // Edge may already exist
+                }
+              }
+            }
+          }
         }
 
         processedCount++;
@@ -142,7 +295,7 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
     });
 
     logger.info(
-      `[ObjC Enhancement] Enhanced ${output.symbolsEnhanced} symbols in ${output.filesEnhanced} files`,
+      `[ObjC Enhancement] Enhanced ${output.symbolsEnhanced} symbols, created ${callsEdgesCreated} CALLS edges in ${output.filesEnhanced} files`,
     );
 
     return output;

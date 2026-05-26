@@ -11,7 +11,7 @@
  */
 
 import type { SymbolDefinition } from 'gitnexus-shared';
-import type { ObjCEnhancedResult } from './types.js';
+import type { ObjCEnhancedResult, ObjCEnhancedConfig } from './types.js';
 import { ClangIndexer } from './clang-indexer.js';
 import { logger } from '../../logger.js';
 
@@ -43,9 +43,11 @@ export interface ObjCEnhancementOutput {
 export class ObjCEnhancedProcessor {
   private clangIndexer: ClangIndexer;
   private initialized = false;
+  private config?: Partial<ObjCEnhancedConfig>;
 
-  constructor() {
-    this.clangIndexer = new ClangIndexer();
+  constructor(config?: Partial<ObjCEnhancedConfig>) {
+    this.config = config;
+    this.clangIndexer = new ClangIndexer(config);
   }
 
   /**

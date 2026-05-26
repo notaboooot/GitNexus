@@ -126,6 +126,11 @@ export interface AnalyzeOptions {
    * the count; `undefined` defers to the env / auto-formula fallback.
    */
   workerPoolSize?: number;
+  /**
+   * Path to Objective-C enhancement config file.
+   * Forwarded to `PipelineOptions.objcConfigPath` for Clang AST analysis.
+   */
+  objcConfig?: string;
 }
 
 export interface AnalyzeResult {
@@ -459,7 +464,11 @@ export async function runFullAnalysis(
         : p.message || phaseLabel;
       progress(p.phase, scaled, message);
     },
-    { parseCache, workerPoolSize: options.workerPoolSize },
+    {
+      parseCache,
+      workerPoolSize: options.workerPoolSize,
+      objcConfigPath: options.objcConfig,
+    },
   );
 
   // ── Phase 2: LadybugDB (60–85%) ──────────────────────────────────

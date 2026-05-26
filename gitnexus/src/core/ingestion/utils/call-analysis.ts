@@ -9,6 +9,7 @@ export const CALL_EXPRESSION_TYPES = new Set([
   'nullsafe_member_call_expression', // PHP ?.
   'call', // Python/Ruby
   'invocation_expression', // C#
+  'message_expression', // Objective-C: [obj method]
 ]);
 
 /**
@@ -134,6 +135,11 @@ export const inferCallForm = (callNode: SyntaxNode, nameNode: SyntaxNode): CallF
     return 'member';
   }
 
+  // 4c. Objective-C message_expression: [obj method] always has a receiver
+  if (callNode.type === 'message_expression' && callNode.childForFieldName('receiver')) {
+    return 'member';
+  }
+
   // 5. Scoped calls (Rust Foo::new(), C++ ns::func()): treat as free
   //    The receiver is a type, not an instance — handled differently in Phase 3
   if (nameParent && SCOPED_CALL_NODE_TYPES.has(nameParent.type)) {
@@ -203,6 +209,12 @@ export const extractReceiverName = (nameNode: SyntaxNode): string | undefined =>
   // Ruby: call node has 'receiver' field
   if (!receiver && parent.type === 'call') {
     receiver = parent.childForFieldName('receiver');
+  }
+
+  // Objective-C: message_expression has 'receiver' field
+  // [obj method] → receiver is 'obj'
+  if (!receiver && callNode.type === 'message_expression') {
+    receiver = callNode.childForFieldName('receiver');
   }
 
   // PHP scoped_call_expression (parent::method(), self::method()):

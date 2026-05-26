@@ -145,19 +145,37 @@ export class ClangIndexer {
       'objective-c',
     ];
 
-    // Add SDK and framework paths
-    if (this.env.sdkPath) {
+    // Add SDK path (prefer config over auto-detected)
+    if (this.config.sdkPath) {
+      args.push('-isysroot', this.config.sdkPath);
+    } else if (this.env.sdkPath) {
       args.push('-isysroot', this.env.sdkPath);
     }
 
-    // Add common frameworks
-    for (const fw of this.config.frameworkPaths || this.env.frameworks.slice(0, 1)) {
+    // Add target architecture if specified
+    if (this.config.targetArch) {
+      args.push('-arch', this.config.targetArch);
+    }
+
+    // Add framework search paths
+    const frameworkPaths = this.config.frameworkPaths || this.env.frameworks;
+    for (const fw of frameworkPaths) {
       args.push('-F', fw);
     }
 
-    // Add include paths
+    // Add header search paths
     for (const inc of this.config.includePaths || []) {
       args.push('-I', inc);
+    }
+
+    // Add preprocessor defines
+    for (const define of this.config.defines || []) {
+      args.push('-D', define);
+    }
+
+    // Add other Clang flags
+    for (const flag of this.config.otherFlags || []) {
+      args.push(flag);
     }
 
     // Add user-provided clang path or use detected one

@@ -588,6 +588,8 @@ export interface AnalyzeOptions {
   embeddingBatchSize?: string;
   embeddingSubBatchSize?: string;
   embeddingDevice?: string;
+  /** Path to Objective-C enhancement config file */
+  objcConfig?: string;
 }
 
 /**
@@ -966,6 +968,8 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
         // GITNEXUS_WORKER_POOL_SIZE env mutation. `undefined` defers to the
         // env / auto-formula fallback inside the pipeline.
         workerPoolSize,
+        // Objective-C enhancement config path for Clang AST analysis
+        objcConfig: options?.objcConfig,
       },
       {
         onProgress: (_phase, percent, message) => {

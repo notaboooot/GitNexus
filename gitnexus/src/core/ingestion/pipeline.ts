@@ -120,6 +120,13 @@ export interface PipelineOptions {
    * without leaking `process.env` state across invocations.
    */
   chunkByteBudget?: number;
+
+  /**
+   * Objective-C enhancement configuration path.
+   * When provided, enables Clang AST analysis for precise type inference
+   * and call resolution in Objective-C projects.
+   */
+  objcConfigPath?: string;
 }
 
 // ── Phase registry ─────────────────────────────────────────────────────────

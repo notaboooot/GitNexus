@@ -1518,19 +1518,13 @@ export const OBJECTIVE_C_QUERIES = `
 ; ── Class Interface ───────────────────────────────────────────────────────────
 ; tree-sitter-objc 3.x: (class_interface (identifier) ...)
 ; Match the first identifier only (class name), anchor at start
+; Note: Categories are also represented as class_interface with a category field
 (class_interface
   . (identifier) @name) @definition.class
 
 ; ── Class Implementation ─────────────────────────────────────────────────────
+; Note: Category implementations are also class_implementation with a category field
 (class_implementation
-  . (identifier) @name) @definition.class
-
-; ── Category Interface ────────────────────────────────────────────────────────
-(category_interface
-  . (identifier) @name) @definition.class
-
-; ── Category Implementation ───────────────────────────────────────────────────
-(category_implementation
   . (identifier) @name) @definition.class
 
 ; ── Protocol Declaration ──────────────────────────────────────────────────────
@@ -1551,9 +1545,20 @@ export const OBJECTIVE_C_QUERIES = `
   (identifier) @name) @definition.method
 
 ; ── Instance Variables ────────────────────────────────────────────────────────
-(ivars_declaration
-  (ivar_declaration
-    declarator: (identifier) @name)) @definition.property
+; tree-sitter-objc 3.x uses instance_variables/instance_variable
+(instance_variables
+  (instance_variable
+    (struct_declaration
+      (struct_declarator
+        (pointer_declarator
+          declarator: (identifier) @name))))) @definition.property
+
+; Instance variable without pointer
+(instance_variables
+  (instance_variable
+    (struct_declaration
+      (struct_declarator
+        (identifier) @name)))) @definition.property
 
 ; ── Properties ────────────────────────────────────────────────────────────────
 ; tree-sitter-objc 3.x uses struct_declaration/struct_declarator for property names
@@ -1563,9 +1568,11 @@ export const OBJECTIVE_C_QUERIES = `
       (pointer_declarator
         declarator: (identifier) @name)))) @definition.property
 
-; Also try direct identifier for simpler cases
+; Property without pointer (e.g., NSInteger age)
 (property_declaration
-  (identifier) @name) @definition.property
+  (struct_declaration
+    (struct_declarator
+      (identifier) @name))) @definition.property
 
 ; ── C Functions (common in OC files) ──────────────────────────────────────────
 (function_definition
@@ -1573,21 +1580,20 @@ export const OBJECTIVE_C_QUERIES = `
     declarator: (identifier) @name)) @definition.function
 
 ; ── Imports ───────────────────────────────────────────────────────────────────
-(import_declaration
+; tree-sitter-objc 3.x: #import and #include both become preproc_include
+; For local headers: #import "File.h"
+(preproc_include
   path: (string_literal) @import.source) @import
 
-; ── Preprocessor Includes ─────────────────────────────────────────────────────
+; For system headers: #import <Framework/Header.h>
 (preproc_include
-  path: (_) @import.source) @import
+  path: (system_lib_string) @import.source) @import
 
 ; ── Message Expressions (method calls) ────────────────────────────────────────
-; tree-sitter-objc 3.x uses (identifier) for selector
+; tree-sitter-objc 3.x: message_expression has receiver and method fields
+; [obj method] or [obj method:arg]
 (message_expression
-  (identifier) @call.name) @call
-
-; Also try selector node for compatibility
-(message_expression
-  selector: (selector) @call.name) @call
+  method: (identifier) @call.name) @call
 
 ; ── C-style Function Calls ────────────────────────────────────────────────────
 (call_expression
@@ -1608,8 +1614,9 @@ export const OBJECTIVE_C_QUERIES = `
       (type_identifier) @heritage.implements))) @heritage.impl
 
 ; ── Enum Declarations ─────────────────────────────────────────────────────────
-(enum_declaration
-  (identifier) @name) @definition.enum
+; tree-sitter-objc 3.x uses enum_specifier
+(enum_specifier
+  name: (type_identifier) @name) @definition.enum
 
 ; ── Typedef ───────────────────────────────────────────────────────────────────
 (type_definition
@@ -1620,17 +1627,11 @@ export const OBJECTIVE_C_QUERIES = `
   name: (type_identifier) @name) @definition.struct
 
 ; ── Write access: obj.field = value ───────────────────────────────────────────
+; tree-sitter-objc 3.x uses field_expression instead of member_expression
 (assignment_expression
-  left: (member_expression
-    object: (_) @assignment.receiver
-    property: (field_identifier) @assignment.property)
-  right: (_)) @assignment
-
-; ── Compound assignment: obj.field += value ───────────────────────────────────
-(compound_assignment_expression
-  left: (member_expression
-    object: (_) @assignment.receiver
-    property: (field_identifier) @assignment.property)
+  left: (field_expression
+    argument: (_) @assignment.receiver
+    field: (field_identifier) @assignment.property)
   right: (_)) @assignment
 `;
 

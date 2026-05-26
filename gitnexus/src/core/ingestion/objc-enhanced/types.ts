@@ -73,14 +73,29 @@ export interface ObjCEnhancedConfig {
   /** Path to SourceKit-LSP (default: auto-detect) */
   sourceKitPath?: string;
 
-  /** Additional framework paths for Clang */
+  /** Additional framework search paths for Clang (-F flags) */
   frameworkPaths?: string[];
 
-  /** Additional include paths for Clang */
+  /** Additional header search paths for Clang (-I flags) */
   includePaths?: string[];
+
+  /** Custom SDK path (overrides auto-detected) */
+  sdkPath?: string;
+
+  /** Target architecture (e.g., 'arm64', 'x86_64') */
+  targetArch?: string;
+
+  /** Preprocessor defines (-D flags) */
+  defines?: string[];
+
+  /** Additional Clang flags */
+  otherFlags?: string[];
 
   /** Timeout for Clang analysis (ms) */
   timeout?: number;
+
+  /** Maximum number of files to enhance (default: 100) */
+  maxFiles?: number;
 }
 
 export interface ObjCSymbolInfo {

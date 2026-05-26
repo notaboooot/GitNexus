@@ -88,6 +88,10 @@ program
   .option('--embedding-batch-size <n>', 'Number of nodes per embedding batch')
   .option('--embedding-sub-batch-size <n>', 'Number of chunks per embedding model call')
   .option('--embedding-device <device>', 'Embedding device: auto, cpu, dml, cuda, or wasm')
+  .option(
+    '--objc-config <path>',
+    'Path to Objective-C enhancement config file (JSON). If not provided, auto-detects from nearest Xcode project. If path provided but file missing, auto-generates and saves to that path.',
+  )
   .addHelpText('after', () => t('help.analyze.environment'))
   .action(createLazyAction(() => import('./analyze.js'), 'analyzeCommand'));
 
