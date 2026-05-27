@@ -127,6 +127,11 @@ export interface PipelineOptions {
    * and call resolution in Objective-C projects.
    */
   objcConfigPath?: string;
+  /**
+   * Xcode scheme for extracting build settings from workspace.
+   * Required when analyzing a workspace that needs a specific scheme.
+   */
+  objcScheme?: string;
 }
 
 // ── Phase registry ─────────────────────────────────────────────────────────

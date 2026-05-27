@@ -131,6 +131,11 @@ export interface AnalyzeOptions {
    * Forwarded to `PipelineOptions.objcConfigPath` for Clang AST analysis.
    */
   objcConfig?: string;
+  /**
+   * Xcode scheme for extracting build settings from workspace.
+   * Required when workspace needs a specific scheme for -showBuildSettings.
+   */
+  objcScheme?: string;
 }
 
 export interface AnalyzeResult {
@@ -468,6 +473,7 @@ export async function runFullAnalysis(
       parseCache,
       workerPoolSize: options.workerPoolSize,
       objcConfigPath: options.objcConfig,
+      objcScheme: options.objcScheme,
     },
   );
 

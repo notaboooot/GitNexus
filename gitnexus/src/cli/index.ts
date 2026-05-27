@@ -92,6 +92,10 @@ program
     '--objc-config <path>',
     'Path to Objective-C enhancement config file (JSON). If not provided, auto-detects from nearest Xcode project. If path provided but file missing, auto-generates and saves to that path.',
   )
+  .option(
+    '--objc-scheme <name>',
+    'Xcode scheme for extracting build settings (required for workspace projects). Example: BBAFlowVideo',
+  )
   .addHelpText('after', () => t('help.analyze.environment'))
   .action(createLazyAction(() => import('./analyze.js'), 'analyzeCommand'));
 

@@ -69,7 +69,11 @@ function hasObjCFilesInGraph(graph: any): boolean {
  * 2. If configPath is provided but file doesn't exist -> auto-detect and save
  * 3. If no configPath -> auto-detect (no save)
  */
-function loadConfig(configPath: string | undefined, repoPath: string): ObjCConfig | null {
+function loadConfig(
+  configPath: string | undefined,
+  repoPath: string,
+  scheme?: string,
+): ObjCConfig | null {
   // Case 1: Config file provided and exists
   if (configPath) {
     const absolutePath = resolve(repoPath, configPath);
@@ -86,7 +90,7 @@ function loadConfig(configPath: string | undefined, repoPath: string): ObjCConfi
 
   // Case 2 & 3: Auto-detect from nearest Xcode project
   logger.info('[ObjC Enhancement] Auto-detecting Xcode project settings...');
-  const config = autoDetectObjCConfig(repoPath);
+  const config = autoDetectObjCConfig(repoPath, scheme ? { scheme } : undefined);
 
   if (!config) {
     logger.info('[ObjC Enhancement] No Xcode project found, using default Clang settings');
@@ -179,7 +183,8 @@ export const objcEnhancementPhase: PipelinePhase<ObjCEnhancementOutput> = {
 
     // Load configuration if provided
     const objcConfigPath = ctx.options?.objcConfigPath;
-    const config = loadConfig(objcConfigPath, ctx.repoPath);
+    const objcScheme = ctx.options?.objcScheme;
+    const config = loadConfig(objcConfigPath, ctx.repoPath, objcScheme);
 
     if (config) {
       logger.info(

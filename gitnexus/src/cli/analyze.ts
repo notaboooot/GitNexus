@@ -590,6 +590,8 @@ export interface AnalyzeOptions {
   embeddingDevice?: string;
   /** Path to Objective-C enhancement config file */
   objcConfig?: string;
+  /** Xcode scheme for extracting build settings */
+  objcScheme?: string;
 }
 
 /**
@@ -970,6 +972,8 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
         workerPoolSize,
         // Objective-C enhancement config path for Clang AST analysis
         objcConfig: options?.objcConfig,
+        // Xcode scheme for workspace build settings extraction
+        objcScheme: options?.objcScheme,
       },
       {
         onProgress: (_phase, percent, message) => {
