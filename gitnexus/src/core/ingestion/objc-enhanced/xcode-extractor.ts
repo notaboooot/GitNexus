@@ -301,6 +301,19 @@ export function detectEasyBox(projectDir: string): Partial<ObjCConfig> & { xcode
           config.headerSearchPaths!.push(headersDir);
         }
         config.headerSearchPaths!.push(projDir);
+
+        // Add .virtual-headers-path for framework-style imports
+        // Structure: Headers/.virtual-headers-path/Public/<ProjectName> -> ../../Public
+        // This enables imports like <BBAFlowVideo/Header.h> to work
+        const virtualPublicPath = join(projDir, 'Headers', '.virtual-headers-path', 'Public');
+        const virtualProjectPath = join(projDir, 'Headers', '.virtual-headers-path', 'Project');
+
+        if (existsSync(virtualPublicPath)) {
+          config.headerSearchPaths!.push(virtualPublicPath);
+        }
+        if (existsSync(virtualProjectPath)) {
+          config.headerSearchPaths!.push(virtualProjectPath);
+        }
       }
 
       config.frameworkSearchPaths!.push(xcodeprojsDir);
