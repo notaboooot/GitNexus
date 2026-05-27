@@ -23,6 +23,7 @@ import { logger } from '../../logger.js';
 import { generateId } from '../../../lib/utils.js';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execSync } from 'node:child_process';
 
 /** OC Enhancement phase output */
 export interface ObjCEnhancementOutput {
@@ -111,13 +112,26 @@ function loadConfig(configPath: string | undefined, repoPath: string): ObjCConfi
  * Convert ObjCConfig to ClangIndexer config format
  */
 function toClangConfig(config: ObjCConfig): Partial<ObjCEnhancedConfig> {
+  // Resolve SDK path if sdk type is specified
+  let sdkPath: string | undefined;
+  if (config.sdk?.type) {
+    try {
+      sdkPath = execSync(`xcrun --sdk ${config.sdk.type} --show-sdk-path`, {
+        encoding: 'utf-8',
+      }).trim();
+      logger.info(`[ObjC Enhancement] Resolved SDK path: ${sdkPath}`);
+    } catch (error) {
+      logger.warn(`[ObjC Enhancement] Failed to resolve SDK path: ${error}`);
+    }
+  }
+
   return {
     frameworkPaths: config.frameworkSearchPaths,
     includePaths: config.headerSearchPaths,
     defines: config.defines,
     otherFlags: config.otherClangFlags,
     timeout: config.timeout,
-    // SDK path would need platform-specific resolution
+    sdkPath,
   };
 }
 

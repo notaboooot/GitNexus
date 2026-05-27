@@ -141,6 +141,8 @@ export class ClangIndexer {
       '-fno-color-diagnostics',
       '-Wno-everything', // Suppress all warnings
       '-Wno-objc-root-class',
+      '-fobjc-arc', // Enable Automatic Reference Counting
+      '-fmodules', // Enable modules for @import syntax
       '-x',
       'objective-c',
     ];
@@ -148,11 +150,20 @@ export class ClangIndexer {
     // Add SDK path (prefer config over auto-detected)
     if (this.config.sdkPath) {
       args.push('-isysroot', this.config.sdkPath);
+      // For iOS SDK, we need to specify the target triple
+      if (
+        this.config.sdkPath.includes('iPhoneOS') ||
+        this.config.sdkPath.includes('iPhoneSimulator')
+      ) {
+        const isSimulator = this.config.sdkPath.includes('Simulator');
+        const targetTriple = isSimulator ? 'arm64-apple-ios-simulator' : 'arm64-apple-ios';
+        args.push('-target', targetTriple);
+      }
     } else if (this.env.sdkPath) {
       args.push('-isysroot', this.env.sdkPath);
     }
 
-    // Add target architecture if specified
+    // Add target architecture if specified (legacy -arch flag)
     if (this.config.targetArch) {
       args.push('-arch', this.config.targetArch);
     }

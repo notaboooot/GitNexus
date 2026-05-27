@@ -11,7 +11,7 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname, resolve, basename } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { logger } from '../../logger.js';
 
 export interface ObjCConfig {
@@ -238,22 +238,27 @@ export function detectCocoaPods(projectDir: string): Partial<ObjCConfig> {
 }
 
 /**
- * Detect EasyBox structure (.easybox/xcodeprojs).
- * EasyBox is a custom package manager that stores xcodeprojs and headers in:
- *   .easybox/xcodeprojs/
- *     ├── SomeRepo/
- *     │   ├── SomeRepo.xcodeproj/
- *     │   └── Headers/
- *     │       └── Public/
- *     ├── AnotherRepo/
- *     │   ├── AnotherRepo.xcodeproj/
- *     │   └── Headers/
- *     │       └── Public/
- *     └── ...
+ * Detect EasyBox structure (.easybox/xcodeprojs and .easybox/storage).
  *
- * For framework-style imports like <BBAVideoInterface/Header.h>:
- *   - headerSearchPaths: each FrameworkName/Headers/Public for -I flags
- *   - frameworkSearchPaths: the xcodeprojs directory for -F flag (less useful without .framework bundles)
+ * EasyBox is a custom package manager with two main directories:
+ *
+ * 1. `.easybox/xcodeprojs/` - Source projects for local development
+ *    ├── SomeRepo/
+ *    │   ├── SomeRepo.xcodeproj/
+ *    │   └── Headers/Public/
+ *
+ * 2. `.easybox/storage/` - Pre-built frameworks (downloaded dependencies)
+ *    ├── tekes.baidu-int.com:8181/repository/ios-public/
+ *    │   └── Pyramid/
+ *    │       └── 1.7.0/
+ *    │           └── Pyramid/
+ *    │               └── Pyramid.framework/
+ *    │                   └── Headers/
+ *    │                       └── Pyramid.h
+ *
+ * For framework-style imports like <Pyramid/Pyramid.h>:
+ *   - headerSearchPaths: each .framework/Headers directory for -I flags
+ *   - frameworkSearchPaths: parent directories for -F flags
  */
 export function detectEasyBox(projectDir: string): Partial<ObjCConfig> & { xcodeprojs: string[] } {
   const config: Partial<ObjCConfig> & { xcodeprojs: string[] } = {
@@ -264,59 +269,90 @@ export function detectEasyBox(projectDir: string): Partial<ObjCConfig> & { xcode
 
   const easyboxDir = join(projectDir, '.easybox');
   const xcodeprojsDir = join(easyboxDir, 'xcodeprojs');
+  const storageDir = join(easyboxDir, 'storage');
 
-  if (!existsSync(xcodeprojsDir)) {
+  if (!existsSync(easyboxDir)) {
     return config;
   }
 
-  logger.info(`[ObjC Config] Detected EasyBox structure at ${xcodeprojsDir}`);
+  logger.info(`[ObjC Config] Detected EasyBox structure at ${easyboxDir}`);
 
-  // Find all .xcodeproj in subdirectories (depth 2: xcodeprojs/SubDir/SubDir.xcodeproj)
-  try {
-    const entries = execSync(
-      `find "${xcodeprojsDir}" -maxdepth 2 -name "*.xcodeproj" 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 10000 },
-    )
-      .trim()
-      .split('\n')
-      .filter(Boolean);
+  // 1. Scan xcodeprojs for source project headers
+  if (existsSync(xcodeprojsDir)) {
+    try {
+      const entries = execSync(
+        `find "${xcodeprojsDir}" -maxdepth 2 -name "*.xcodeproj" 2>/dev/null`,
+        { encoding: 'utf-8', timeout: 10000 },
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean);
 
-    config.xcodeprojs = entries;
+      config.xcodeprojs = entries;
 
-    // For each xcodeproj, find its parent directory's Headers/Public folder
-    // This enables framework-style imports like <BBAVideoInterface/Header.h>
-    for (const proj of entries) {
-      // proj is like: .../xcodeprojs/BBAVideoInterface/BBAVideoInterface.xcodeproj
-      // Headers should be at: .../xcodeprojs/BBAVideoInterface/Headers/Public/
-      const projDir = dirname(proj); // .../xcodeprojs/BBAVideoInterface
-      const frameworkName = basename(projDir); // BBAVideoInterface
-      const headersPublicDir = join(projDir, 'Headers', 'Public');
-      const headersDir = join(projDir, 'Headers');
+      for (const proj of entries) {
+        const projDir = dirname(proj);
+        const headersPublicDir = join(projDir, 'Headers', 'Public');
+        const headersDir = join(projDir, 'Headers');
 
-      // Add Headers/Public for framework-style imports
-      if (existsSync(headersPublicDir)) {
-        config.headerSearchPaths!.push(headersPublicDir);
-        logger.debug(`[ObjC Config] Found Public Headers: ${headersPublicDir}`);
-      } else if (existsSync(headersDir)) {
-        config.headerSearchPaths!.push(headersDir);
-        logger.debug(`[ObjC Config] Found Headers: ${headersDir}`);
+        if (existsSync(headersPublicDir)) {
+          config.headerSearchPaths!.push(headersPublicDir);
+        } else if (existsSync(headersDir)) {
+          config.headerSearchPaths!.push(headersDir);
+        }
+        config.headerSearchPaths!.push(projDir);
       }
 
-      // Also add the project directory itself for local includes
-      config.headerSearchPaths!.push(projDir);
+      config.frameworkSearchPaths!.push(xcodeprojsDir);
+
+      logger.info(`[ObjC Config] xcodeprojs: found ${entries.length} projects`);
+    } catch (error) {
+      logger.warn(`[ObjC Config] Error scanning xcodeprojs: ${error}`);
     }
-
-    // Add the xcodeprojs directory itself as a framework search path
-    // This helps with <FrameworkName/Header.h> style imports when combined with headerSearchPaths
-    config.frameworkSearchPaths!.push(xcodeprojsDir);
-
-    logger.info(
-      `[ObjC Config] EasyBox: found ${entries.length} xcodeprojs, ` +
-        `${config.headerSearchPaths!.length} header paths`,
-    );
-  } catch (error) {
-    logger.warn(`[ObjC Config] Error scanning EasyBox directory: ${error}`);
   }
+
+  // 2. Scan storage for pre-built framework headers
+  // These are needed for framework-style imports like <Pyramid/Pyramid.h>
+  if (existsSync(storageDir)) {
+    try {
+      const startTime = Date.now();
+      // Find all .framework/Headers directories
+      // Structure: storage/<host>/repository/<repo>/<Framework>/<version>/<Framework>/<Framework>.framework/Headers
+      const frameworkHeaders = execSync(
+        `find "${storageDir}" -path "*/Headers" -type d 2>/dev/null | head -2000`,
+        { encoding: 'utf-8', timeout: 60000 },
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+
+      for (const headersPath of frameworkHeaders) {
+        // Verify it's inside a .framework bundle
+        if (headersPath.includes('.framework/Headers')) {
+          config.headerSearchPaths!.push(headersPath);
+
+          // Also add the parent .framework directory for -F flag
+          const frameworkPath = headersPath.replace('/Headers', '');
+          const frameworkParent = dirname(frameworkPath);
+          if (!config.frameworkSearchPaths!.includes(frameworkParent)) {
+            config.frameworkSearchPaths!.push(frameworkParent);
+          }
+        }
+      }
+
+      const elapsed = Date.now() - startTime;
+      logger.info(
+        `[ObjC Config] storage: found ${frameworkHeaders.length} framework headers in ${elapsed}ms`,
+      );
+    } catch (error) {
+      logger.warn(`[ObjC Config] Error scanning storage: ${error}`);
+    }
+  }
+
+  logger.info(
+    `[ObjC Config] EasyBox total: ${config.frameworkSearchPaths!.length} framework paths, ` +
+      `${config.headerSearchPaths!.length} header paths`,
+  );
 
   return config;
 }
@@ -588,17 +624,64 @@ export function autoDetectObjCConfig(
     }
   }
 
-  // 4. Add the repo path itself as a header search path (for local headers)
-  if (existsSync(repoPath)) {
-    config.headerSearchPaths.push(repoPath);
+  // 4. Fallback: Detect iOS SDK if not extracted from Xcode settings
+  // This is needed when xcodebuild fails (e.g., workspace without scheme)
+  if (!config.sdk) {
+    try {
+      // Check if this is likely an iOS project (EasyBox or has .framework paths)
+      const isIOSProject =
+        easyboxConfig.xcodeprojs.length > 0 ||
+        config.frameworkSearchPaths.some((p) => p.includes('.framework'));
+
+      if (isIOSProject) {
+        const sdkPath = execSync('xcrun --sdk iphoneos --show-sdk-path', {
+          encoding: 'utf-8',
+          timeout: 5000,
+        }).trim();
+        if (sdkPath) {
+          config.sdk = { type: 'iphoneos' };
+          logger.info(`[ObjC Config] Auto-detected iOS SDK at ${sdkPath}`);
+        }
+      }
+    } catch (error) {
+      logger.debug(`[ObjC Config] Could not auto-detect SDK: ${error}`);
+    }
   }
 
-  // 5. Deduplicate paths
+  // 5. Add the repo path itself as a header search path (for local headers)
+  if (existsSync(repoPath)) {
+    config.headerSearchPaths.push(repoPath);
+
+    // Also add all subdirectories containing .h files for local imports
+    // This handles cases like #import "BBAFlowVideoSettings.h" where the header
+    // is in a different directory than the source file
+    try {
+      // Use find with -exec dirname to avoid xargs length limits
+      const headerDirs = execSync(
+        `find "${repoPath}" -name "*.h" -type f -not -path "*/.*" -exec dirname {} \\; 2>/dev/null | sort -u | head -500`,
+        { encoding: 'utf-8', timeout: 30000 },
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+
+      for (const dir of headerDirs) {
+        if (!config.headerSearchPaths.includes(dir)) {
+          config.headerSearchPaths.push(dir);
+        }
+      }
+      logger.info(`[ObjC Config] Added ${headerDirs.length} local header directories from repo`);
+    } catch (error) {
+      logger.debug(`[ObjC Config] Could not scan local header directories: ${error}`);
+    }
+  }
+
+  // 6. Deduplicate paths
   config.frameworkSearchPaths = [...new Set(config.frameworkSearchPaths)];
   config.headerSearchPaths = [...new Set(config.headerSearchPaths)];
   config.defines = [...new Set(config.defines)];
 
-  // 6. Check if we found any useful configuration
+  // 7. Check if we found any useful configuration
   if (config.frameworkSearchPaths.length === 0 && config.headerSearchPaths.length === 0) {
     logger.warn('[ObjC Config] No framework or header search paths found');
     return null;
